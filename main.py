@@ -12,6 +12,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 import seaborn as sn
 import matplotlib.pyplot as plt
+import os
 
 
 class DiseasePrediction:
@@ -21,11 +22,15 @@ class DiseasePrediction:
         try:
             with open('./config.yaml', 'r') as f:
                 self.config = yaml.safe_load(f)
-        except Exception as e:
-            print("Error reading Config file...")
+        except FileNotFoundError:
+            print("Config file not found. Please check the path.")
+            raise
+        except yaml.YAMLError as e:
+            print(f"Error parsing YAML file: {e}")
+            raise
 
         # Verbose
-        self.verbose = self.config['verbose']
+        self.verbose = self.config.get('verbose', False)  # Default to False if not found
         # Load Training Data
         self.train_features, self.train_labels, self.train_df = self._load_train_dataset()
         # Load Test Data
@@ -46,8 +51,9 @@ class DiseasePrediction:
         train_labels = df_train['prognosis']
 
         # Check for data sanity
-        assert (len(train_features.iloc[0]) == 132)
-        assert (len(train_labels) == train_features.shape[0])
+        if len(train_features.iloc[0]) != 132:
+            raise ValueError(f"Expected 132 features, but found {len(train_features.iloc[0])} features.")
+        assert len(train_labels) == train_features.shape[0]
 
         if self.verbose:
             print("Length of Training Data: ", df_train.shape)
@@ -64,8 +70,9 @@ class DiseasePrediction:
         test_labels = df_test['prognosis']
 
         # Check for data sanity
-        assert (len(test_features.iloc[0]) == 132)
-        assert (len(test_labels) == test_features.shape[0])
+        if len(test_features.iloc[0]) != 132:
+            raise ValueError(f"Expected 132 features, but found {len(test_features.iloc[0])} features.")
+        assert len(test_labels) == test_features.shape[0]
 
         if self.verbose:
             print("Length of Test Data: ", df_test.shape)
@@ -106,10 +113,16 @@ class DiseasePrediction:
         elif self.model_name == 'gradient_boost':
             self.clf = GradientBoostingClassifier(n_estimators=self.config['model']['gradient_boost']['n_estimators'],
                                                   criterion=self.config['model']['gradient_boost']['criterion'])
+        else:
+            raise ValueError(f"Invalid model name '{self.model_name}' specified.")
         return self.clf
 
     # ML Model
     def train_model(self):
+        # Ensure model save path exists
+        if not os.path.exists(self.model_save_path):
+            os.makedirs(self.model_save_path)
+
         # Get the Data
         X_train, y_train, X_val, y_val = self._train_val_split()
         classifier = self.select_model()
@@ -148,10 +161,12 @@ class DiseasePrediction:
             print("Model not found...")
 
         if test_data is not None:
+            if test_data.shape[1] != self.train_features.shape[1]:
+                raise ValueError("Test data does not match training data feature dimensions.")
             result = clf.predict(test_data)
-            return result
         else:
             result = clf.predict(self.test_features)
+        
         accuracy = accuracy_score(self.test_labels, result)
         clf_report = classification_report(self.test_labels, result)
         return accuracy, clf_report
